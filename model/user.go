@@ -33,3 +33,12 @@ func (u Users) FindByName(name string) (User, error) {
 	}
 	return User{}, errors.New("user_not_found")
 }
+
+func (u Users) FindByID(id int) (User, error) {
+	for _, user := range u {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return User{}, errors.New("user_not_found")
+}

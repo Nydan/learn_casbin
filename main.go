@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/alexedwards/scs/v2"
 	"github.com/alexedwards/scs/v2/memstore"
 	"github.com/casbin/casbin"
+	"github.com/gorilla/mux"
 	"github.com/nydan/casbin/auth"
 	"github.com/nydan/casbin/model"
 )
@@ -29,21 +32,28 @@ func main() {
 	users := createUsers()
 
 	// setup handlers
-	mux := http.NewServeMux()
-	mux.HandleFunc("/login", loginHandler(sessionManager, users))
-	mux.HandleFunc("/member/current", currentMemberHandler(sessionManager))
+	// mux := http.NewServeMux()
+	// mux.HandleFunc("/login", loginHandler(sessionManager, users))
+	// mux.HandleFunc("/member/current", currentMemberHandler(sessionManager))
+
+	// setup handlers with https://github.com/gorilla/mux
+
+	r := mux.NewRouter()
+	r.Handle("/login", loginHandler(sessionManager, users)).Methods(http.MethodPost)
+	r.Handle("/member/current", currentMemberHandler(sessionManager)).Methods(http.MethodGet)
+	r.Handle("/member/current", greetHandler(sessionManager)).Methods(http.MethodPost)
 
 	log.Print("Server started on localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080",
-		sessionManager.LoadAndSave(auth.Authorizer(sessionManager, authEnforce, users)(mux))))
+		sessionManager.LoadAndSave(auth.Authorizer(sessionManager, authEnforce, users)(r))))
 
 }
 
 func createUsers() model.Users {
 	users := model.Users{}
 	users = append(users, model.User{ID: 1, Name: "Admin", Role: "admin"})
-	users = append(users, model.User{ID: 2, Name: "Member1", Role: "member"})
-	users = append(users, model.User{ID: 3, Name: "Member2", Role: "member"})
+	users = append(users, model.User{ID: 2, Name: "Member", Role: "member"})
+	users = append(users, model.User{ID: 3, Name: "Guest", Role: "guest"})
 	return users
 }
 
@@ -85,5 +95,29 @@ func currentMemberHandler(session *scs.SessionManager) http.HandlerFunc {
 			return
 		}
 		writeSuccess(fmt.Sprintf("User with ID: %d", uid), w)
+	})
+}
+
+func greetHandler(session *scs.SessionManager) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uid := session.GetInt(r.Context(), "userID")
+		if uid == 0 {
+			writeError(http.StatusInternalServerError, "ERROR", w, errors.New("member not found"))
+			return
+		}
+		buf, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(http.StatusInternalServerError, "ERROR", w, err)
+			return
+		}
+
+		m := map[string]interface{}{}
+		err = json.Unmarshal(buf, &m)
+		if err != nil {
+			writeError(http.StatusInternalServerError, "ERROR", w, err)
+			return
+		}
+
+		writeSuccess(fmt.Sprintf("%v: %d", m["greet"], uid), w)
 	})
 }
